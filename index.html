@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Neon Desert — Flight</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="hud">
+    <div id="hud-left">
+      <div>Health: <span id="hud-health">100</span></div>
+      <div>Score: <span id="hud-score">0</span></div>
+      <div>Lives: <span id="hud-lives">3</span></div>
+    </div>
+    <div id="hud-center">Enemies: <span id="hud-enemies">0</span></div>
+    <div id="hud-right">Weapon: <span id="hud-weapon">Laser</span></div>
+    <div id="hud-time">Time: <span id="hud-time-val">Day</span></div>
+  </div>
+
+  <div id="crosshair" aria-hidden="true"><div class="dot"></div></div>
+
+  <div id="overlay" class="menu">
+    <h1>Neon Desert — Flight</h1>
+    <p class="sub">Fly. Fight. Survive the canyon night.</p>
+    <button id="startBtn">Start Game</button>
+    <p class="hint">Mouse to look, WASD to fly, Space/Shift to ascend/descend, Left Click to fire</p>
+  </div>
+
+  <div id="pauseOverlay" class="menu hidden">
+    <h2>Paused</h2>
+    <button id="resumeBtn">Resume</button>
+    <button id="restartBtn">Restart</button>
+  </div>
+
+  <div id="endOverlay" class="menu hidden">
+    <h2 id="endTitle">Game Over</h2>
+    <p id="endText"></p>
+    <button id="playAgainBtn">Play Again</button>
+  </div>
+
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
