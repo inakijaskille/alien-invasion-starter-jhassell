@@ -7,6 +7,9 @@ export default class Ship {
     this.scene = scene;
     this.mesh = createShipModel();
     this.mesh.castShadow = true;
+    // Reduce size so it doesn't dominate the screen
+    this.mesh.scale.set(0.55, 0.55, 0.55);
+    // Starting position further ahead (z large positive means far forward in game world)
     this.mesh.position.set(0, 6, 1200);
     scene.add(this.mesh);
 

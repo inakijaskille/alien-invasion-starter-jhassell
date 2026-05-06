@@ -15,11 +15,87 @@ export default class GameManager {
     this.container = container || document.body;
     this.clock = new THREE.Clock();
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 5000);
-    this.renderer = new THREE.WebGLRenderer({antialias:true});
+    // Force a visible background and disable fog initially so scene is never black
+    try{ this.scene.background = new THREE.Color(0x87ceeb); this.scene.fog = null; }catch(e){}
+
+    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 10000);
+    // Use existing canvas if present to avoid duplicate canvases
+    const existingCanvas = document.getElementById('gameCanvas');
+    const rendererOpts = { antialias: true };
+    if (existingCanvas) rendererOpts.canvas = existingCanvas;
+    this.renderer = new THREE.WebGLRenderer(rendererOpts);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
-    this.container.appendChild(this.renderer.domElement);
+    // Only append renderer.domElement when we created the canvas (no existing canvas)
+    if (!existingCanvas) try{ this.container.appendChild(this.renderer.domElement); }catch(e){}
+
+    // Basic lighting to ensure MeshStandardMaterial renders visibly
+    try{
+      const ambient = new THREE.AmbientLight(0xffffff, 1.8); this.scene.add(ambient);
+      const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.position.set(100,250,150); sun.castShadow = true; this.scene.add(sun);
+    }catch(e){}
+
+    // Ensure renderer clear color matches scene background so canvas isn't black
+    try{ this.renderer.setClearColor(0x87ceeb, 1); }catch(e){}
+
+    // Temporary visible sand ground and debug ship to guarantee visible scene
+    try{
+      // add a visible sand ground (simple smooth dunes) if none exists
+      if(!this.scene.getObjectByName('__visible_ground')){
+        const groundGeo = new THREE.PlaneGeometry(3000, 6000, 160, 320);
+        groundGeo.rotateX(-Math.PI / 2);
+        const pos = groundGeo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const z = pos.getZ(i);
+          const y = Math.sin(x * 0.006 + z * 0.002) * 8 + Math.sin(z * 0.008) * 6;
+          pos.setY(i, y);
+        }
+        groundGeo.computeVertexNormals();
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0xd9b76f, roughness: 0.95, metalness: 0 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.position.z = 1500; ground.receiveShadow = true; ground.name='__visible_ground'; this.scene.add(ground);
+      }
+
+      // if the real ship hasn't become visible, add a temporary debug ship
+      try{
+        const shipVisible = this.ship && this.ship.mesh && this.ship.mesh.visible;
+        if(!shipVisible && !this.scene.getObjectByName('__debug_ship')){
+          const debugShip = new THREE.Mesh(new THREE.BoxGeometry(6,3,12), new THREE.MeshStandardMaterial({color:0xff0000}));
+          debugShip.position.set(0,10,30); debugShip.name='__debug_ship'; debugShip.castShadow=true; this.scene.add(debugShip);
+        }
+      }catch(e){}
+    }catch(e){}
+
+    // Diagnostics overlay: show WebGL/context info to help debug black screen
+    try{
+      const diagId = '__render_diag_panel';
+      let diag = document.getElementById(diagId);
+      if(!diag){
+        diag = document.createElement('div'); diag.id = diagId;
+        diag.style.position = 'fixed'; diag.style.right = '12px'; diag.style.bottom = '12px'; diag.style.zIndex = 9999;
+        diag.style.background = 'rgba(0,0,0,0.6)'; diag.style.color = '#fff'; diag.style.fontFamily = 'sans-serif';
+        diag.style.padding = '8px 10px'; diag.style.borderRadius = '6px'; diag.style.fontSize = '12px'; diag.style.maxWidth = '320px';
+        diag.innerHTML = '<strong>Renderer diagnostics</strong><div id="__render_diag_inner">initializing...</div>';
+        document.body.appendChild(diag);
+      }
+      const inner = document.getElementById('__render_diag_inner');
+      const gl = this.renderer.getContext && this.renderer.getContext();
+      const info = [];
+      info.push('Renderer OK: ' + (!!this.renderer));
+      info.push('Canvas attached: ' + (!!this.renderer.domElement));
+      if(gl){
+        try{
+          info.push('GL: ' + (gl.getParameter(gl.VERSION) || 'unknown'));
+          const drv = gl.getParameter(gl.RENDERER) || 'unknown'; info.push('GPU: ' + drv);
+          info.push('VENDOR: ' + (gl.getParameter(gl.VENDOR) || 'unknown'));
+        }catch(e){ info.push('GL params read failed'); }
+      } else {
+        info.push('GL context: null');
+      }
+      inner.innerHTML = info.map(s=>'&middot; '+s).join('<br>');
+    }catch(e){ console.warn('Failed to create render diag overlay', e); }
 
     this.input = new InputManager();
     this.state = new StateManager();
@@ -48,8 +124,15 @@ export default class GameManager {
     this.hud = new HUD();
     this.screens = new Screens(this);
 
-    this.camera.position.set(0, 20, -60);
-    this.camera.lookAt(0,6,0);
+    // Camera offsets for a third-person chase view
+    this._cameraOffset = new THREE.Vector3(0, 12, -55);
+    this._lookAheadOffset = new THREE.Vector3(0, 5, 90);
+    // place camera behind where the ship will spawn
+    const initialCam = new THREE.Vector3().copy(this._cameraOffset);
+    this.camera.position.copy(initialCam);
+    this.camera.lookAt(new THREE.Vector3(0,6,80));
+    this.camera.near = 0.1; this.camera.far = 10000; this.camera.updateProjectionMatrix();
+    this.camera.near = 0.1; this.camera.far = 10000; this.camera.updateProjectionMatrix();
 
     this._bind();
     window.addEventListener('resize', () => this._onResize());
@@ -107,6 +190,12 @@ export default class GameManager {
   }
 
   _update(dt) {
+    // remove temporary debug ship once real ship is visible
+    try{
+      if(this.ship && this.ship.mesh && this.ship.mesh.visible){
+        const dbg = this.scene.getObjectByName('__debug_ship'); if(dbg) { this.scene.remove(dbg); }
+      }
+    }catch(e){}
     // update timers
     if (this.collisionCooldown > 0) this.collisionCooldown = Math.max(0, this.collisionCooldown - dt);
 
@@ -147,13 +236,23 @@ export default class GameManager {
       const ex = this._explosions[0];
       // freeze camera near explosion
       const target = ex.mesh.position;
-      const desiredCam = new THREE.Vector3(target.x, target.y + 8, target.z - 30);
+      const desiredCam = new THREE.Vector3(target.x, target.y + 8, target.z - 40);
       this.camera.position.lerp(desiredCam, 0.02);
       this.camera.lookAt(target);
     } else {
-      const desiredCam = new THREE.Vector3(shipPos.x, shipPos.y + 12, shipPos.z - 30);
-      this.camera.position.lerp(desiredCam, 0.06);
-      this.camera.lookAt(shipPos.x, shipPos.y+4, shipPos.z+60);
+      // Smooth third-person chase camera farther behind the ship
+      try{
+        const targetCameraPos = shipPos.clone().add(this._cameraOffset);
+        this.camera.position.lerp(targetCameraPos, 0.08);
+
+        const lookTarget = shipPos.clone().add(this._lookAheadOffset);
+        this.camera.lookAt(lookTarget);
+      }catch(e){
+        // fallback to previous behavior on error
+        const desiredCam = new THREE.Vector3(shipPos.x, shipPos.y + 12, shipPos.z - 40);
+        this.camera.position.lerp(desiredCam, 0.06);
+        this.camera.lookAt(shipPos.x, shipPos.y+4, shipPos.z+60);
+      }
     }
 
     this.hud.updateFromGame(this);
@@ -238,9 +337,11 @@ export default class GameManager {
 
     // make sure ship visible and camera reset behind it
     this.ship.mesh.visible = true;
-    const camPos = new THREE.Vector3(this.ship.mesh.position.x, this.ship.mesh.position.y + 12, this.ship.mesh.position.z - 30);
+    // Place camera using the chase offsets so ship sits lower-center
+    const camPos = this.ship.mesh.position.clone().add(this._cameraOffset);
     this.camera.position.copy(camPos);
-    this.camera.lookAt(this.ship.mesh.position.x, this.ship.mesh.position.y + 4, this.ship.mesh.position.z + 60);
+    const lt = this.ship.mesh.position.clone().add(this._lookAheadOffset);
+    this.camera.lookAt(lt);
 
     // small delay before allowing control
     setTimeout(()=>{

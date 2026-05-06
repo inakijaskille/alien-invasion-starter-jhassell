@@ -2,12 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <!-- Temporary: allow unsafe-eval locally to bypass CSP errors from extensions/CDNs during development -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:;">
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Neon Desert — Flight</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <canvas id="gameCanvas"></canvas>
+  <!-- Canvas is created by the emergency test scene in main.js -->
 
   <div id="hud">
     <div id="hud-left">
