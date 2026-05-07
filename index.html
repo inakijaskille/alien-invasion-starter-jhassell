@@ -9,7 +9,8 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Canvas is created by the emergency test scene in main.js -->
+  <!-- Main game canvas -->
+  <canvas id="gameCanvas"></canvas>
 
   <div id="hud">
     <div id="hud-left">
@@ -43,6 +44,10 @@
     <button id="playAgainBtn">Play Again</button>
   </div>
 
-  <script type="module" src="main.js"></script>
+  <script src="https://unpkg.com/three@0.154.0/build/three.min.js"></script>
+  <script src="src/environment/obstacles/Obstacle.js"></script>
+  <script src="src/environment/obstacles/ObstacleFactory.js"></script>
+  <script src="src/environment/obstacles/ObstacleManager.js"></script>
+  <script src="src/main.js"></script>
 </body>
 </html>

@@ -204,68 +204,144 @@
 
   // --- EnemyManager ---
   class EnemyManager{
-    constructor(scene, terrain, playerRef){ this.scene=scene; this.terrain=terrain; this.playerRef=playerRef; this.enemies=[]; }
-    _makeFaceTexture(size=128){
-      const c = document.createElement('canvas'); c.width=size; c.height=size; const ctx = c.getContext('2d');
-      ctx.fillStyle='#ff2222'; ctx.fillRect(0,0,size,size);
-      ctx.fillStyle='#000000';
-      const px = size/12; const eyeW = Math.floor(px*1.8); const eyeH = Math.floor(px*2.8); const eyeY = Math.floor(size*0.22);
-      ctx.fillRect(Math.floor(size*0.22)-eyeW/2, eyeY, eyeW, eyeH);
-      ctx.fillRect(Math.floor(size*0.78)-eyeW/2, eyeY, eyeW, eyeH);
-      const mouthW = Math.floor(size*0.45); const mouthH = Math.floor(px*1.8); const mouthY = Math.floor(size*0.62);
-      ctx.fillRect(Math.floor((size-mouthW)/2), mouthY, mouthW, mouthH);
-      const endW = Math.floor(px*0.8); const endH = Math.floor(px*1.8);
-      ctx.fillRect(Math.floor((size-mouthW)/2)-endW-2, mouthY, endW, endH);
-      ctx.fillRect(Math.floor((size+mouthW)/2)+2, mouthY, endW, endH);
-      const tex = new THREE.CanvasTexture(c); tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestMipMapNearestFilter; return tex;
+    constructor(scene, terrain, playerRef){
+      this.scene = scene; this.terrain = terrain; this.playerRef = playerRef; this.enemies = [];
+      // shared geometry/material to keep things lightweight
+      this._bodyGeo = new THREE.SphereGeometry(1, 24, 20);
+      this._eyeGeo = new THREE.SphereGeometry(0.28, 16, 12);
+      this._pupilGeo = new THREE.SphereGeometry(0.12, 12, 8);
+      this._bodyMat = new THREE.MeshStandardMaterial({ color: 0xd94b2b, roughness: 0.45, metalness: 0.05, emissive: 0x441100, emissiveIntensity: 0.12 });
+      this._eyeMat = new THREE.MeshStandardMaterial({ color: 0xffd84d, emissive: 0xffd84d, emissiveIntensity: 0.15, roughness: 0.25 });
+      this._pupilMat = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.6 });
     }
+
     spawnThree(){
       this.clear();
-      const faceTex = this._makeFaceTexture(128);
-      const colors = [0xff2222,0xff2222,0xff2222];
       const zPositions = [ -1200, 0, 1500 ];
       for(let i=0;i<3;i++){
         const z = zPositions[i];
         const cx = this.terrain.centerlineX(z);
         const offsetX = (i%2===0)? -40 : 60;
-        const x = cx + offsetX + (Math.random()-0.5)*30;
-        const scale = 2.5;
-        const y = this.terrain.sampleHeight(x,z) + (6 * scale) + 3 + Math.random()*2;
+        const x = cx + offsetX + (Math.random()-0.5)*40;
+        const scale = 6 + Math.floor(Math.random()*3); // much larger for readability
+        const baseHeight = this.terrain.sampleHeight(x,z) + 16 + Math.random()*6;
+
         const g = new THREE.Group();
-        const body = new THREE.Mesh(new THREE.BoxGeometry(4,4,4), new THREE.MeshStandardMaterial({color:0xff3333}));
-        body.castShadow = true; g.add(body);
-        const panel = new THREE.Mesh(new THREE.PlaneGeometry(3.6,3.6), new THREE.MeshStandardMaterial({map:faceTex, emissive:0x220000}));
-        panel.position.set(0,0,2.01); g.add(panel);
-        g.position.set(x,y,z);
-        this.scene.add(g);
-        // scale up enemies for visibility
+        // body - stretched teardrop (scale Y slightly taller)
+        const body = new THREE.Mesh(this._bodyGeo, this._bodyMat.clone()); body.castShadow = true; body.receiveShadow = true;
+        body.scale.set(1.0, 1.25, 1.0);
+        body.geometry.computeVertexNormals(); g.add(body);
+
+        // eye assembly
+        const eyeHolder = new THREE.Group();
+        const eye = new THREE.Mesh(this._eyeGeo, this._eyeMat.clone()); eye.position.set(0, 0.18, 0.9); eye.castShadow = false; eye.receiveShadow = false; eyeHolder.add(eye);
+        const pupil = new THREE.Mesh(this._pupilGeo, this._pupilMat); pupil.position.set(0, 0.06, 1.06); pupil.castShadow = false; eyeHolder.add(pupil);
+        // small sprite-like glow for eye
+        const c = document.createElement('canvas'); c.width = 64; c.height = 64; const ctx = c.getContext('2d'); const grad = ctx.createRadialGradient(32,32,0,32,32,32); grad.addColorStop(0,'rgba(255,220,120,0.9)'); grad.addColorStop(0.4,'rgba(255,150,20,0.35)'); grad.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle = grad; ctx.fillRect(0,0,64,64); const tex = new THREE.CanvasTexture(c);
+        const spriteMat = new THREE.SpriteMaterial({ map: tex, color: 0xffffff, blending: THREE.AdditiveBlending, transparent: true, depthWrite:false });
+        const eyeGlow = new THREE.Sprite(spriteMat); eyeGlow.scale.set(2.8,2.8,1); eyeGlow.position.set(0,0.18,1.1);
+        g.add(eyeHolder); g.add(eyeGlow);
+
+        // mouth
+        const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.08,0.06), new THREE.MeshStandardMaterial({color:0x000000, roughness:0.6})); mouth.position.set(0,-0.28,0.86); g.add(mouth);
+
+        // optional small fins
+        if(Math.random() < 0.4){
+          const fins = new THREE.Group();
+          for(let s=0;s<3;s++){ const f = new THREE.ConeGeometry(0.08,0.36,8); const fm = new THREE.Mesh(f, this._bodyMat.clone()); const ang = (s-1)*0.45; fm.position.set(Math.sin(ang)*0.9, (Math.random()-0.3)*0.2, Math.cos(ang)*0.25); fm.rotation.x = 1.3 + Math.random()*0.4; fins.add(fm); }
+          g.add(fins);
+        }
+
+        g.position.set(x, baseHeight, z);
         g.scale.set(scale, scale, scale);
-        this.enemies.push({group:g, health:20, timer:Math.random()*10, meshBody:body, faceTex, scale});
+        this.scene.add(g);
+
+        this.enemies.push({ group: g, body: body, eye: eye, pupil: pupil, baseY: baseHeight, timer: Math.random()*10, offset: Math.random()*3.7, health: 60, maxHealth:60, scale, hitRadius: 10, flash:0, dead:false, deathTimer:0, particles:[] });
       }
     }
+
     update(dt){
-      for(const e of this.enemies){
-        if(e.health<=0) continue;
+      const player = this.playerRef();
+      const now = performance.now()*0.001;
+      for(let i=this.enemies.length-1;i>=0;i--){
+        const e = this.enemies[i];
+        if(!e) continue;
         e.timer += dt;
-        e.group.position.y = this.terrain.sampleHeight(e.group.position.x, e.group.position.z) + 6*e.scale + Math.sin(e.timer*2)*1.8;
-        e.group.rotation.y += dt*0.12;
-        // face look at player if near
-        const player = this.playerRef();
-        if(player){ const dist = e.group.position.distanceTo(player.group.position); if(dist < 320){ e.group.children.forEach(c=>{ if(c.material && c.material.map) c.lookAt(player.group.position); }); } }
+        if(e.dead){
+          e.deathTimer += dt;
+          // shrink and fade
+          const t = e.deathTimer / 0.9;
+          e.group.scale.setScalar(Math.max(0.001, e.scale * (1 - t)));
+          if(e.deathTimer > 0.9){
+            // remove
+            try{ this.scene.remove(e.group); }catch(err){}
+            this.enemies.splice(i,1);
+            continue;
+          }
+          continue;
+        }
+
+        // bobbing above ground
+        const base = this.terrain.sampleHeight(e.group.position.x, e.group.position.z);
+        const hover = 14 + Math.sin(e.timer*2 + e.offset) * 2.0;
+        e.group.position.y = base + hover;
+
+        // gentle drift
+        e.group.position.x += Math.sin(e.timer * 0.6 + e.offset) * 0.12 * (e.scale/6) * dt;
+
+        // wobble rotation
+        e.group.rotation.z = Math.sin(e.timer * 1.5 + e.offset) * 0.08;
+
+        // face player slowly
+        if(player){
+          const toPlayer = player.group.position.clone().sub(e.group.position);
+          const targetYaw = Math.atan2(toPlayer.x, toPlayer.z);
+          const delta = (targetYaw - e.group.rotation.y + Math.PI) % (Math.PI*2) - Math.PI;
+          e.group.rotation.y += delta * Math.min(1, dt * 1.5);
+          // eye look at player a bit
+          const eyeWorldPos = e.eye.getWorldPosition(new THREE.Vector3());
+          const look = player.group.position.clone().sub(eyeWorldPos).normalize();
+          e.eye.lookAt(player.group.position);
+        }
+
+        // flash effect decay
+        if(e.flash > 0){ e.flash -= dt; const f = Math.max(0, e.flash); try{ e.body.material.emissiveIntensity = 0.8 * f; }catch(e){} }
+
+        // update simple particles (sparks)
+        if(e.particles && e.particles.length){
+          for(let p=e.particles.length-1;p>=0;p--){ const part = e.particles[p]; part.life -= dt; part.mesh.position.addScaledVector(part.vel, dt); if(part.life<=0){ try{ this.scene.remove(part.mesh); }catch(err){} e.particles.splice(p,1); } }
+        }
       }
     }
+
+    // Return enemy if projectile hits; apply damage and visual reaction
     hitTestProjectile(proj){
       for(const e of this.enemies){
-        if(e.health<=0) continue;
+        if(e.dead) continue;
         const d = e.group.position.distanceTo(proj.mesh.position);
-        if(d < (3.2 * e.scale)){
-          e.health -= 10; return e;
+        if(d < e.hitRadius){
+          // apply damage
+          e.health -= 10;
+          // flash and shake
+          e.flash = 0.12;
+          // recoil
+          try{ e.group.position.addScaledVector(proj.dir.clone().negate(), 2.2); }catch(err){}
+          // spawn small spark particles
+          for(let s=0;s<6;s++){ const sgeo = new THREE.SphereGeometry(0.08,6,6); const smat = new THREE.MeshBasicMaterial({color:0xffcc66}); const sm = new THREE.Mesh(sgeo, smat); sm.position.copy(proj.mesh.position); this.scene.add(sm); const vel = new THREE.Vector3((Math.random()-0.5)*3, Math.random()*2, (Math.random()-0.5)*3); if(!e.particles) e.particles = []; e.particles.push({ mesh: sm, vel, life: 0.5 + Math.random()*0.4 }); }
+          // death sequence
+          if(e.health <= 0){ e.dead = true; e.deathTimer = 0; // spawn a bigger explosion sprite
+            try{ const exGeo = new THREE.IcosahedronGeometry(1.6,1); const exMat = new THREE.MeshStandardMaterial({color:0xffaa33, emissive:0xff6622, transparent:true}); const ex = new THREE.Mesh(exGeo, exMat); ex.position.copy(e.group.position); this.scene.add(ex); e.particles.push({ mesh: ex, vel: new THREE.Vector3(0,0.6,0), life:0.9 }); }catch(err){}
+          }
+          return e;
         }
       }
       return null;
     }
-    allDead(){ return this.enemies.filter(e=>e.health>0).length===0; }
-    clear(){ for(const e of this.enemies){ try{ if(e.meshBody) e.meshBody.geometry.dispose(); if(e.faceTex) e.faceTex.dispose(); this.scene.remove(e.group); }catch(err){} } this.enemies.length=0; }
+
+    allDead(){ return this.enemies.filter(e=> !e.dead).length===0; }
+
+    // mark and remove all
+    clear(){ for(const e of this.enemies){ try{ this.scene.remove(e.group); }catch(err){} } this.enemies.length=0; }
   }
 
 
@@ -281,75 +357,71 @@
       this.maxLateral = 120; this.maxVertical = 80; this.accel = 10.0; // smoothing factor
     }
     _build(){
-      // creative low-poly craft: pronged nose, cockpit disk, swept wings, rotating dorsal ring, twin thrusters
-      const scaleFactor = 3.2;
-      const mainColor = 0x2f3640; // dark gunmetal
-      const accentColor = 0x4fe0ff; // bright cyan
-      const mainMat = new THREE.MeshPhysicalMaterial({color:mainColor, metalness:0.9, roughness:0.14, clearcoat:0.14, clearcoatRoughness:0.06});
-      const accentMat = new THREE.MeshPhysicalMaterial({color:accentColor, metalness:0.5, roughness:0.08, emissive:accentColor, emissiveIntensity:0.0});
+      // Build a compact hover speeder (small, lower-center framing)
+      const cream = 0xd8c0a0;
+      const red = 0x8b1e1e;
+      const metal = 0x555555;
+      const blueGlow = 0x4aa3ff;
 
-      // helper to create additive sprite glow
+      const mainMat = new THREE.MeshStandardMaterial({color:cream, roughness:0.45, metalness:0.15});
+      const panelMat = new THREE.MeshStandardMaterial({color:red, roughness:0.6, metalness:0.12});
+      const metalMat = new THREE.MeshStandardMaterial({color:metal, roughness:0.35, metalness:0.85});
+      const glowMat = new THREE.MeshBasicMaterial({color:blueGlow, transparent:true, opacity:0.95});
+
+      // main body: long horizontal hull
+      const bodyGeo = new THREE.BoxGeometry(4.5, 0.9, 12);
+      const body = new THREE.Mesh(bodyGeo, mainMat); body.castShadow = true; body.receiveShadow = true; body.position.set(0,0.6,0); body.geometry.computeVertexNormals(); this.group.add(body);
+
+      // rounded nose: sphere scaled and blended into front
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 12), mainMat); nose.position.set(0.0,0.75,6.3); nose.scale.set(1.1,0.85,1.4); nose.castShadow=true; this.group.add(nose);
+
+      // cockpit: small dark transparent dome
+      const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.9, 24, 16), new THREE.MeshPhysicalMaterial({color:0x1a1a1a, transparent:true, opacity:0.85, metalness:0.12, roughness:0.18}));
+      cockpit.position.set(0.0,1.05,2.6); cockpit.scale.set(1,0.8,1.2); cockpit.castShadow = true; this.group.add(cockpit);
+
+      // side engine pods
+      const podGeo = new THREE.CylinderGeometry(0.6,0.6,4,20);
+      const podL = new THREE.Mesh(podGeo, metalMat); podL.rotation.x = Math.PI/2; podL.position.set(2.2,0.4,1.2); podL.castShadow=true; this.group.add(podL);
+      const podR = podL.clone(); podR.position.set(-2.2,0.4,1.2); this.group.add(podR);
+
+      // rear engine pods
+      const rearPodL = podL.clone(); rearPodL.position.set(2.2,0.4,-4.8); this.group.add(rearPodL);
+      const rearPodR = podL.clone(); rearPodR.position.set(-2.2,0.4,-4.8); this.group.add(rearPodR);
+
+      // side panels (red accents)
+      const panelGeo = new THREE.BoxGeometry(0.5,0.14,6);
+      const pL = new THREE.Mesh(panelGeo, panelMat); pL.position.set(2.35,0.66,-0.4); pL.rotation.y = 0.06; this.group.add(pL);
+      const pR = pL.clone(); pR.position.set(-2.35,0.66,-0.4); this.group.add(pR);
+
+      // rear thruster glow (blue emissive cylinders)
+      const glowGeo = new THREE.CylinderGeometry(0.28,0.28,0.8,12);
+      const gL = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({color:blueGlow, emissive:blueGlow, transparent:true, opacity:0.95})); gL.rotation.x = Math.PI/2; gL.position.set(2.2,0.3,-6.0); this.group.add(gL);
+      const gR = gL.clone(); gR.position.set(-2.2,0.3,-6.0); this.group.add(gR);
+
+      // small metallic details on top
+      const detailGeo = new THREE.BoxGeometry(0.24,0.06,0.9);
+      const d1 = new THREE.Mesh(detailGeo, metalMat); d1.position.set(0,1.0,-1.2); this.group.add(d1);
+
+      // soft additive sprite glow behind thrusters for stronger bloom feel
       const makeGlowSprite = (hex, size=128)=>{
         const c = document.createElement('canvas'); c.width=size; c.height=size; const ctx = c.getContext('2d');
         const g = ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
-        g.addColorStop(0, 'rgba(255,255,255,0.95)');
+        g.addColorStop(0, 'rgba(255,255,255,0.85)');
         g.addColorStop(0.2, `rgba(${(hex>>16)&255},${(hex>>8)&255},${hex&255},0.6)`);
         g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(0,0,size,size);
         const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter;
         const mat = new THREE.SpriteMaterial({map:tex, color:0xffffff, blending:THREE.AdditiveBlending, transparent:true, depthWrite:false});
         return new THREE.Sprite(mat);
       };
+      const glowSpriteL = makeGlowSprite(blueGlow, 256); glowSpriteL.position.set(2.2,0.28,-6.6); glowSpriteL.scale.set(1.6,1.6,1); this.group.add(glowSpriteL);
+      const glowSpriteR = makeGlowSprite(blueGlow, 256); glowSpriteR.position.set(-2.2,0.28,-6.6); glowSpriteR.scale.set(1.6,1.6,1); this.group.add(glowSpriteR);
 
-      // forward prongs (split nose) - smooth boxes
-      const prongGeo = new THREE.BoxGeometry(0.18,0.18,2.8,4,4,8);
-      const prongL = new THREE.Mesh(prongGeo, mainMat); prongL.position.set(2.4, -0.06, 0.46); prongL.rotation.set(0,0.08,0.02); prongL.scale.set(scaleFactor, scaleFactor, scaleFactor*0.9); prongL.castShadow=true; prongL.geometry.computeVertexNormals(); this.group.add(prongL);
-      const prongR = prongL.clone(); prongR.position.set(2.4, -0.06, -0.46); this.group.add(prongR);
-
-      // central cockpit disk (smoother)
-      const diskGeo = new THREE.CylinderGeometry(0.9,0.9,0.5,32,1);
-      const disk = new THREE.Mesh(diskGeo, mainMat); disk.rotation.x = Math.PI/2; disk.position.set(0.6,0.48,0); disk.scale.set(scaleFactor, scaleFactor, scaleFactor*0.7); disk.castShadow=true; disk.geometry.computeVertexNormals(); this.group.add(disk);
-
-      // canopy bubble (higher segments)
-      const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.5,32,20), new THREE.MeshPhysicalMaterial({color:0x05131a, transparent:true, opacity:0.92, metalness:0.06, roughness:0.18, clearcoat:0.08}));
-      canopy.position.set(0.9,0.9,0); canopy.scale.set(scaleFactor, scaleFactor, scaleFactor*0.9); canopy.castShadow=true; canopy.geometry.computeVertexNormals(); this.group.add(canopy);
-
-      // swept wing blades using cone geometry with 3 radial segments (triangular wing) for a stylized smooth look
-      const wingGeo = new THREE.ConeGeometry(0.6, 3.8, 3); wingGeo.rotateX(Math.PI/2);
-      const bladeL = new THREE.Mesh(wingGeo, mainMat); bladeL.position.set(-0.2,0.02,1.9); bladeL.rotation.set(0.06,0.14,0.28); bladeL.scale.set(scaleFactor, scaleFactor, scaleFactor); bladeL.castShadow=true; bladeL.geometry.computeVertexNormals(); this.group.add(bladeL);
-      const bladeR = bladeL.clone(); bladeR.position.set(-0.2,0.02,-1.9); bladeR.rotation.set(0.06,-0.14,-0.28); this.group.add(bladeR);
-
-      // small winglets and stabilizers (rounded)
-      const stabGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.8, 12);
-      const stabL = new THREE.Mesh(stabGeo, mainMat); stabL.position.set(-1.6,0.28,1.05); stabL.rotation.set(0.12,0.18,0.2); stabL.scale.set(scaleFactor, scaleFactor, scaleFactor*0.55); stabL.castShadow = true; stabL.geometry.computeVertexNormals(); this.group.add(stabL);
-      const stabR = stabL.clone(); stabR.position.set(-1.6,0.28,-1.05); this.group.add(stabR);
-
-      // twin rear thrusters (cylinders with higher segments)
-      const engineGeo = new THREE.CylinderGeometry(0.26,0.26,1.1,24);
-      const engL = new THREE.Mesh(engineGeo, mainMat); engL.rotation.z = Math.PI/2; engL.position.set(-2.2, -0.06, 0.55); engL.scale.set(scaleFactor, scaleFactor, scaleFactor); engL.castShadow=false; engL.geometry.computeVertexNormals(); this.group.add(engL);
-      const engR = engL.clone(); engR.position.set(-2.2, -0.06, -0.55); this.group.add(engR);
-
-      // accent strips on wings
-      const stripGeo = new THREE.BoxGeometry(0.03,0.01,1.6);
-      const stripL = new THREE.Mesh(stripGeo, accentMat); stripL.position.set(0.1,0.045,1.05); stripL.rotation.set(0,0.08,0.18); stripL.scale.set(scaleFactor, scaleFactor, scaleFactor); stripL.geometry.computeVertexNormals(); this.group.add(stripL);
-      const stripR = stripL.clone(); stripR.position.set(0.1,0.045,-1.05); this.group.add(stripR);
-
-      // rotating dorsal ring for sci-fi flair (smoother segments)
-      const ringGeo = new THREE.TorusGeometry(0.75, 0.06, 16, 80);
-      const ringMat = new THREE.MeshPhysicalMaterial({color:accentColor, metalness:0.6, roughness:0.08, emissive:accentColor, emissiveIntensity:0.0, clearcoat:0.2});
-      const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.y = Math.PI/2; ring.position.set(0.0,1.0,0); ring.scale.set(scaleFactor*0.65, scaleFactor*0.65, scaleFactor*0.65); ring.castShadow=false; ring.geometry.computeVertexNormals(); this.group.add(ring);
-      this.rotatingRing = ring; this.ringMat = ringMat; this._ringPhase = Math.random()*Math.PI*2;
-
-      // engine glows as additive sprites for smooth bloom-like appearance
-      const glowL = makeGlowSprite(accentColor, 256); glowL.position.set(-2.8, -0.06, 0.55); glowL.scale.set(2.6*scaleFactor,2.6*scaleFactor,1); this.group.add(glowL);
-      const glowR = makeGlowSprite(accentColor, 256); glowR.position.set(-2.8, -0.06, -0.55); glowR.scale.set(2.6*scaleFactor,2.6*scaleFactor,1); this.group.add(glowR);
-      this.engineGlows = [glowL, glowR];
-
-      // small forward thruster sprite light
-      const fGlow = makeGlowSprite(accentColor,128); fGlow.position.set(2.6, -0.02, 0); fGlow.scale.set(0.9*scaleFactor,0.9*scaleFactor,1); this.group.add(fGlow);
-
-      // store accent material for dynamic emissive control
-      this.accentMat = accentMat;
+      // store references for runtime control
+      this.engineGlows = [glowSpriteL, glowSpriteR, gL, gR];
+      this.accentMat = panelMat;
       this.scene.add(this.group);
+      // scale ship to be more visible and cinematic (larger but not blocking)
+      this.group.scale.set(1.35, 1.35, 1.35);
     }
     setPosition(x,y,z){
       this.group.position.set(x,y,z); this.group.rotation.set(0,0,0);
@@ -432,9 +504,10 @@
 
   // --- CollisionSystem ---
   class CollisionSystem{
-    constructor(terrain, player, enemyManager, projectileManager, onPlayerDeath, onEnemyDeath){
+    constructor(terrain, player, enemyManager, projectileManager, onPlayerDeath, onEnemyDeath, obstacleManager){
       this.terrain = terrain; this.player = player; this.enemyManager = enemyManager; this.projectileManager = projectileManager;
       this.onPlayerDeath = onPlayerDeath; this.onEnemyDeath = onEnemyDeath;
+      this.obstacleManager = obstacleManager || null;
       this.enabled = true;
     }
     update(){
@@ -445,6 +518,21 @@
       if(ppos.y <= ground + 1.1) { this.onPlayerDeath('collision'); }
       const halfW = this.terrain.width/2; const halfL = this.terrain.length/2;
       if(Math.abs(ppos.x) > halfW || ppos.z < -halfL || ppos.z > halfL){ this.onPlayerDeath('boundary'); }
+      // obstacle collisions (solid parts only)
+      try{
+        if(this.obstacleManager && this.obstacleManager.getSolidHitboxes){
+          // compute ship bounding box
+          const shipBox = new THREE.Box3().setFromObject(this.player.group);
+          shipBox.expandByScalar(0.6);
+          const solids = this.obstacleManager.getSolidHitboxes();
+          for(const obstacle of solids){ if(obstacle && obstacle.intersectsBox && obstacle.intersectsBox(shipBox)){ // call triggerCrash if available
+                if(typeof window.triggerCrash === 'function'){ try{ window.triggerCrash('hit obstacle'); }catch(e){ this.onPlayerDeath('hit obstacle'); } }
+                else { this.onPlayerDeath('hit obstacle'); }
+                return;
+              }
+          }
+        }
+      }catch(e){ console.warn('Obstacle collision check failed', e); }
       // projectiles vs enemies
       for(let i=this.projectileManager.list.length-1;i>=0;i--){ const proj = this.projectileManager.list[i]; if(proj.owner!=='player') continue; const hit = this.enemyManager.hitTestProjectile(proj); if(hit){ // remove proj
           try{ this.projectileManager.scene.remove(proj.mesh); proj.mesh.geometry.dispose(); proj.mesh.material.dispose(); }catch(e){}
@@ -526,21 +614,42 @@
       // create new scene so reset is clean
       this.dispose();
       this.scene = new THREE.Scene();
-      // warm desert sky with sandy haze
-      this.scene.background = new THREE.Color(0xF6E9D6);
-      this.scene.fog = new THREE.FogExp2(0xEADFC5, 0.00085);
+      // sky will be handled by a cinematic sky dome; fog set later
+      this.scene.background = null;
+      this.scene.fog = null;
       // camera
       this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.5, 20000);
       this.camera.position.set(0,12,-26);
-      // lights
-      // strong raking sunlight to emphasize dune contours
-      const sun = new THREE.DirectionalLight(0xffefc8, 1.25);
-      sun.position.set(1200, 800, -600);
+      // lighting tuned to warm desert afternoon
+      const sun = new THREE.DirectionalLight(0xffe0a3, 2.3);
+      sun.position.set(-400, 500, -300);
       sun.castShadow = true; sun.shadow.mapSize.set(2048,2048); sun.shadow.bias = -0.0005; this.scene.add(sun);
-      const hemi = new THREE.HemisphereLight(0xffeecf, 0xB27A4A, 0.55); this.scene.add(hemi);
-      const amb = new THREE.AmbientLight(0xffffff, 0.12); this.scene.add(amb);
+      const hemi = new THREE.HemisphereLight(0x9ed8ff, 0xd6a85f, 1.15); this.scene.add(hemi);
+      const amb = new THREE.AmbientLight(0xffffff, 0.18); this.scene.add(amb);
       // terrain
       this.terrain = new TerrainGenerator(this.scene, {width:3000, length:7000, segX:300, segZ:600});
+      // cinematic sky dome + fog (follow camera)
+      try{
+        const topSky = 0x8fd3ff;
+        const horizon = 0xf2c078;
+        const dust = 0xe0b27a;
+        const skyGeo = new THREE.SphereGeometry(4000, 32, 15);
+        skyGeo.scale(-1,1,1);
+        const skyMat = new THREE.ShaderMaterial({
+          uniforms: {
+            topColor: { value: new THREE.Color(topSky) },
+            bottomColor: { value: new THREE.Color(horizon) },
+            dustColor: { value: new THREE.Color(dust) }
+          },
+          vertexShader: 'varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+          fragmentShader: 'uniform vec3 topColor; uniform vec3 bottomColor; uniform vec3 dustColor; varying vec3 vPos; void main(){ float t = normalize(vPos).y * 0.5 + 0.5; vec3 col = mix(bottomColor, topColor, pow(t,0.85)); float haze = smoothstep(-0.2, 0.2, t); col = mix(col, dustColor, 1.0 - haze*0.6); gl_FragColor = vec4(col,1.0); }',
+          side: THREE.BackSide,
+          depthWrite: false
+        });
+        this._sky = new THREE.Mesh(skyGeo, skyMat); this._sky.renderOrder = -1; this.scene.add(this._sky);
+      }catch(e){ console.warn('Sky init failed', e); }
+      // fog for cinematic depth
+      this.scene.fog = new THREE.Fog(0xe8c08a, 600, 3500);
       // create safe launch runway before other objects
       this._createLaunchPlatform();
       // managers
@@ -549,6 +658,12 @@
       // set player start inside canyon
       const startZ = - (this.terrain.length/2) + 200; const startX = this.terrain.centerlineX(startZ);
       this.player.setPosition(startX, this.terrain.sampleHeight(startX,startZ) + 5, startZ);
+      // obstacle manager: place ruins along the flight path after the launch zone
+      try{
+        this.obstacleManager = new ObstacleManager(this.scene, this.terrain);
+        // spawn obstacles after the startZ (manager will add spacing and rules)
+        this.obstacleManager.spawnAlongPath(startZ);
+      }catch(e){ console.warn('ObstacleManager not available or failed to spawn', e); this.obstacleManager = null; }
       // position camera so ship is low and framed among dunes at start
       const camOffset = new THREE.Vector3(0,5,-12).applyQuaternion(this.player.group.quaternion);
       this.camera.position.copy(this.player.group.position.clone().add(camOffset));
@@ -556,8 +671,8 @@
       this.camera.lookAt(lookAtInit);
       this.enemyManager = new EnemyManager(this.scene, this.terrain, ()=>this.player);
       this.enemyManager.spawnThree();
-      // collision
-      this.collisionSystem = new CollisionSystem(this.terrain, this.player, this.enemyManager, this.projectileManager, (reason)=>this._onPlayerDeath(reason), (enemy)=>this._onEnemyDeath(enemy));
+      // collision (include obstacle manager)
+      this.collisionSystem = new CollisionSystem(this.terrain, this.player, this.enemyManager, this.projectileManager, (reason)=>this._onPlayerDeath(reason), (enemy)=>this._onEnemyDeath(enemy), this.obstacleManager);
       // temporarily disable collisions during launch until ramp completes
       this.collisionSystem.enabled = false;
       // reset lives only when requested (full new game)
@@ -597,11 +712,24 @@
       }
     }
     _onEnemyDeath(enemy){ try{ this.scene.remove(enemy.group); }catch(e){} this.player.score += 50; this.ui.update(this.player.health, this.player.score, this.enemyManager.enemies.filter(e=>e.health>0).length, this.lives); if(this.enemyManager.allDead()){ this.state = GameState.VICTORY; this.running = false; this.ui.showEnd('Victory','All hostiles destroyed. Press R to play again.'); } }
+
+    _onEnemyDeath(enemy){
+      // EnemyManager now handles animated death/removal. Just award score and update HUD.
+      try{
+        if(this.enemyManager && typeof this.enemyManager.markForDeath === 'function'){
+          this.enemyManager.markForDeath(enemy);
+        }
+      }catch(e){ /* ignore */ }
+      this.player.score += 50;
+      this.ui.update(this.player.health, this.player.score, this.enemyManager ? this.enemyManager.enemies.filter(en=>!en.dead).length : 0, this.lives);
+      if(this.enemyManager && this.enemyManager.allDead()){ this.state = GameState.VICTORY; this.running = false; this.ui.showEnd('Victory','All hostiles destroyed. Press R to play again.'); }
+    }
     restart(resetLives = true){ // fully recreate world (optionally preserve lives)
       try{ // clear existing resources
         InputManager.reset();
         this.projectileManager && this.projectileManager.clear();
         this.enemyManager && this.enemyManager.clear();
+        this.obstacleManager && this.obstacleManager.dispose();
         this.terrain && this.terrain.dispose();
         this.player && this.player.dispose();
         // remove launch platform if present
@@ -650,17 +778,18 @@
       }catch(e){}
     }
     _updateCamera(dt){
-      // chase camera behind player with stable lower-center framing
-      const OFFSET = new THREE.Vector3(0,5,-12); // lower and closer for immersive framing
-      const forwardAhead = new THREE.Vector3(0,0,1).applyQuaternion(this.player.group.quaternion).normalize().multiplyScalar(18);
-      const idealPos = this.player.group.position.clone().add(OFFSET.clone().applyQuaternion(this.player.group.quaternion));
-      // prevent camera from getting too close
-      const minDist = 10;
-      const curDist = idealPos.distanceTo(this.player.group.position);
-      if(curDist < minDist){ const dir = idealPos.clone().sub(this.player.group.position).normalize(); idealPos.copy(this.player.group.position).add(dir.multiplyScalar(minDist)); }
-      this.camera.position.lerp(idealPos, 1-Math.exp(-6*dt));
-      const lookAt = this.player.group.position.clone().add(forwardAhead).add(new THREE.Vector3(0,3,0));
-      this.camera.lookAt(lookAt);
+      // third-person chase camera farther behind the ship for wide view
+      const cameraOffset = new THREE.Vector3(0,11,-50);
+      const lookAheadOffset = new THREE.Vector3(0,5,90);
+
+      const targetCameraPos = this.player.group.position.clone().add(cameraOffset);
+      // smooth lerp toward target position (gentle smoothing)
+      this.camera.position.lerp(targetCameraPos, 0.08);
+
+      const lookTarget = this.player.group.position.clone().add(lookAheadOffset);
+      this.camera.lookAt(lookTarget);
+      // keep sky dome centered on camera for consistent horizon
+      try{ if(this._sky) this._sky.position.copy(this.camera.position); }catch(e){}
     }
     _loop(){
       const now = performance.now()/1000; const dt = Math.min(0.05, now - this.lastTime); this.lastTime = now;
@@ -704,6 +833,9 @@
 
   // expose restart from global for convenience
   window.__GAME = GAME;
+
+  // global triggerCrash helper for obstacle collision callbacks
+  try{ window.triggerCrash = function(reason){ try{ if(window.__GAME && window.__GAME._onPlayerDeath) window.__GAME._onPlayerDeath(reason); }catch(e){ console.warn('triggerCrash failed', e); } }; }catch(e){}
 
   // console instruction
   console.log('Neon Desert ready. Click Start.');

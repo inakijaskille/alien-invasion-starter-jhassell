@@ -25,9 +25,54 @@ canvas{position:fixed;inset:0;display:block;z-index:1}
 /* overlays */
 #endOverlay p{max-width:520px;text-align:center}
 
-/* simple centered crosshair */
-#crosshair{position:fixed;left:50%;top:50%;width:36px;height:36px;margin-left:-18px;margin-top:-18px;pointer-events:none;z-index:30;}
-#crosshair:before,#crosshair:after{content:'';position:absolute;left:50%;top:50%;background:var(--accent);}
-#crosshair:before{width:2px;height:36px;margin-left:-1px;margin-top:-18px;opacity:0.95}
-#crosshair:after{height:2px;width:36px;margin-left:-18px;margin-top:-1px;opacity:0.95}
-#crosshair .dot{position:absolute;left:50%;top:50%;width:6px;height:6px;margin-left:-3px;margin-top:-3px;border-radius:50%;background:var(--accent);opacity:0.98}
+/* minimal cinematic crosshair */
+#crosshair{
+	position:fixed;
+	left:50%;
+	top:50%;
+	width:20px;
+	height:20px;
+	transform:translate(-50%,-50%);
+	pointer-events:none;
+	z-index:30;
+}
+
+#crosshair::before,
+#crosshair::after{
+	content:"";
+	position:absolute;
+	background:rgba(102,217,255,0.8);
+	box-shadow:0 0 6px rgba(102,217,255,0.35);
+	border-radius:2px;
+}
+
+#crosshair::before{
+	left:9px;
+	top:0;
+	width:2px;
+	height:20px;
+}
+
+#crosshair::after{
+	top:9px;
+	left:0;
+	width:20px;
+	height:2px;
+}
+
+#crosshair .dot{
+	position:absolute;
+	left:50%;
+	top:50%;
+	width:4px;
+	height:4px;
+	margin-left:-2px;
+	margin-top:-2px;
+	border-radius:50%;
+	background:rgba(102,217,255,0.95);
+	box-shadow:0 0 8px rgba(102,217,255,0.25);
+}
+
+/* subtle pulse when firing or on focus - can be activated via JS by toggling .pulse */
+#crosshair.pulse::before,#crosshair.pulse::after,#crosshair.pulse .dot{animation:ch-pulse 900ms ease-out 1}
+@keyframes ch-pulse{from{transform:scale(1)}to{transform:scale(1.12);opacity:0.95}}
