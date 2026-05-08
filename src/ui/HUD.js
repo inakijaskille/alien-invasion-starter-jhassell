@@ -81,4 +81,3 @@ export default class HUD {
       this.el.style.background = prev;
     }, 250);
   }
-}
