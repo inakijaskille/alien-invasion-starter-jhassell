@@ -615,7 +615,7 @@
       this.dispose();
       this.scene = new THREE.Scene();
       // sky will be handled by a cinematic sky dome; fog set later
-      this.scene.background = null;
+      this.scene.background = new THREE.Color(0x8fcfff);
       this.scene.fog = null;
       // camera
       this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.5, 20000);
