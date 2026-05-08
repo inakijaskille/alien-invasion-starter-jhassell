@@ -619,7 +619,7 @@
       this.scene.fog = null;
       // camera
       this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.5, 20000);
-      this.camera.position.set(0,12,-26);
+      this.camera.position.set(0,16,-34);
       // lighting tuned to warm desert afternoon
       const sun = new THREE.DirectionalLight(0xffe0a3, 2.3);
       sun.position.set(-400, 500, -300);
